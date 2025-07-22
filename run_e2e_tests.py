@@ -291,14 +291,20 @@ def main():
     success = results.print_summary()
     
     # Run unit tests if available
-    if os.path.exists("run_tests.sh"):
+    if os.path.exists("run_unit_tests.py"):
         print(f"\n{Colors.BOLD}🧪 Running Unit Tests{Colors.END}")
         print("-" * 40)
-        success_unit, stdout, stderr = run_command("./run_tests.sh", timeout=30)
+        success_unit, stdout, stderr = run_command("python3 run_unit_tests.py", timeout=30)
         if success_unit:
             print(f"{Colors.GREEN}Unit tests passed!{Colors.END}")
+            # Parse unit test output to add to results
+            if "Success Rate: 100.0%" in stdout:
+                results.add_test("Unit Tests", True, "All unit tests passed")
+            else:
+                results.add_test("Unit Tests", False, "Some unit tests failed")
         else:
             print(f"{Colors.RED}Unit tests failed!{Colors.END}")
+            results.add_test("Unit Tests", False, "Unit test execution failed")
             if stderr:
                 print(f"Error: {stderr}")
     
