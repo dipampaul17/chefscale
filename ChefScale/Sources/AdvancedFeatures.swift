@@ -14,6 +14,7 @@ class FlowStateManager: ObservableObject {
     private var weightHistory: [WeightReading] = []
     private var containerPatterns: [ContainerPattern] = []
     private let maxHistorySize = 50
+    private var lastHapticWeight: Float = 0
     
     enum PourDirection {
         case none, in, out
@@ -42,6 +43,7 @@ class FlowStateManager: ObservableObject {
         detectPourPattern()
         predictFinalWeight()
         checkContainerCapacity()
+        checkPourMilestones(weight)
     }
     
     private func analyzeFlowState() {
@@ -93,15 +95,26 @@ class FlowStateManager: ObservableObject {
             return
         }
         
-        // Simple linear extrapolation based on current rate
-        let currentWeight = weightHistory.last?.weight ?? 0.0
-        let timeToStable = estimateTimeToStable()
+        // Linear regression on recent weight changes
+        let recentReadings = Array(weightHistory.suffix(5))
+        let times = recentReadings.map { $0.timestamp.timeIntervalSince(recentReadings[0].timestamp) }
+        let weights = recentReadings.map { $0.weight }
         
-        if timeToStable > 0 {
-            predictedFinalWeight = currentWeight + (pourSpeed * timeToStable)
-        } else {
-            predictedFinalWeight = currentWeight
-        }
+        // Calculate slope
+        let n = Double(times.count)
+        let sumX = times.reduce(0, +)
+        let sumY = weights.map { Double($0) }.reduce(0, +)
+        let sumXY = zip(times, weights).map { $0 * Double($1) }.reduce(0, +)
+        let sumX2 = times.map { $0 * $0 }.reduce(0, +)
+        
+        let slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
+        
+        // Predict weight 2 seconds into the future
+        let futureTime = times.last! + 2.0
+        predictedFinalWeight = Float(weights.last!) + Float(slope * 2.0)
+        
+        // Clamp to reasonable values
+        predictedFinalWeight = max(weights.last!, min(predictedFinalWeight, weights.last! + 500))
     }
     
     private func estimateTimeToStable() -> Float {
@@ -113,19 +126,38 @@ class FlowStateManager: ObservableObject {
     }
     
     private func checkContainerCapacity() {
-        // Check against learned container patterns
-        let currentWeight = weightHistory.last?.weight ?? 0.0
+        guard let currentWeight = weightHistory.last?.weight else { return }
         
-        for pattern in containerPatterns {
-            let warningThreshold = pattern.maxWeight * 0.9
-            if currentWeight > warningThreshold && predictedFinalWeight > pattern.maxWeight {
-                containerCapacityWarning = true
-                providePourFeedback(.capacityWarning)
-                return
-            }
+        // Find matching container pattern
+        let matchingContainer = containerPatterns.first { pattern in
+            abs(pattern.maxWeight - predictedFinalWeight) < 50
         }
         
-        containerCapacityWarning = false
+        if let container = matchingContainer {
+            let fillPercentage = currentWeight / container.maxWeight
+            
+            if fillPercentage > 0.9 && !containerCapacityWarning {
+                containerCapacityWarning = true
+                providePourFeedback(.capacityWarning)
+                
+                // Reset warning after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    self.containerCapacityWarning = false
+                }
+            }
+        }
+    }
+    
+    private func checkPourMilestones(_ weight: Float) {
+        let milestone = Float(Int(weight / 10) * 10)
+        if milestone > lastHapticWeight && isPouring {
+            providePourFeedback(.measurementTick)
+            lastHapticWeight = milestone
+        }
+        
+        if weight < lastHapticWeight - 20 {
+            lastHapticWeight = milestone
+        }
     }
     
     private func calculateVariance(_ values: [Float]) -> Float {

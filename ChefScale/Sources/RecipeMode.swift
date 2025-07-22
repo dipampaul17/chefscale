@@ -5,6 +5,7 @@ struct RecipeModeView: View {
     @ObservedObject var scaleManager: ScaleManager
     @StateObject private var recipeManager = RecipeManager()
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var hapticCoordinator = HapticCoordinator()
     
     var body: some View {
         VStack(spacing: 20) {
@@ -315,7 +316,7 @@ class RecipeManager: ObservableObject {
         if difference <= tolerance && !current.isComplete {
             ingredients[currentIngredientIndex].isComplete = true
             
-            // Haptic feedback for completion
+            // Haptic feedback for completion - now uses NSHapticFeedbackManager for E2E test
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
             
             // Move to next ingredient

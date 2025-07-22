@@ -5,10 +5,13 @@ struct ContentView: View {
     @StateObject private var scaleManager = ScaleManager()
     @StateObject private var flowStateManager = FlowStateManager()
     @StateObject private var ingredientAnalyzer = IngredientAnalyzer()
+    @StateObject private var hapticCoordinator = HapticCoordinator()
+    @StateObject private var gestureManager = GestureManager()
     @State private var showCalibration = false
     @State private var showRecipeMode = false
     @State private var lastActiveTime = Date()
     @State private var isSleeping = false
+    @State private var lastMilestoneWeight: Float = 0
     
     var body: some View {
         ZStack {
@@ -20,6 +23,19 @@ struct ContentView: View {
             } else {
                 activeScaleView
             }
+            
+            // Invisible trackpad gesture detection layer
+            TrackpadGestureView(
+                onDoubleTap: {
+                    scaleManager.tare()
+                    hapticCoordinator.triggerHaptic(.doubleTap)
+                },
+                onShake: {
+                    scaleManager.undoTare()
+                    hapticCoordinator.triggerHaptic(.tare)
+                }
+            )
+            .opacity(0.001) // Nearly invisible but still receives events
         }
         .onAppear {
             scaleManager.startListening()
@@ -50,6 +66,22 @@ struct ContentView: View {
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             checkSleepState()
+        }
+        // Haptic feedback for weight milestones
+        .onReceive(scaleManager.$displayWeight) { weight in
+            checkWeightMilestones(weight)
+        }
+        // Haptic feedback for flow state changes
+        .onReceive(flowStateManager.$isPouring) { isPouring in
+            if isPouring {
+                hapticCoordinator.triggerHaptic(.flowStateChange)
+            }
+        }
+        // Haptic feedback for ingredient detection
+        .onReceive(ingredientAnalyzer.$suggestions) { suggestions in
+            if let first = suggestions.first, first.confidence > 0.8 {
+                hapticCoordinator.triggerHaptic(.ingredientDetected)
+            }
         }
     }
     
@@ -134,12 +166,14 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundColor(.blue)
                 }
+                .transition(.scale.combined(with: .opacity))
                 
                 // Pour direction
                 if flowStateManager.pourDirection != .none {
                     Image(systemName: flowStateManager.pourDirection == .in ? "arrow.down" : "arrow.up")
                         .foregroundColor(flowStateManager.pourDirection == .in ? .green : .orange)
                         .font(.caption)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
             
@@ -153,40 +187,54 @@ struct ContentView: View {
                         .foregroundColor(.red)
                 }
                 .transition(.scale.combined(with: .opacity))
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: flowStateManager.containerCapacityWarning)
             }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.blue.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.blue.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .animation(.easeInOut(duration: 0.2), value: flowStateManager.isPouring)
     }
     
     private func ingredientSuggestionView(_ suggestion: IngredientAnalyzer.IngredientSuggestion) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: "lightbulb.fill")
                 .foregroundColor(.yellow)
+                .font(.caption)
             
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Might be: \(suggestion.name)")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                
-                Text(suggestion.reason)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
+            Text("Detected: \(suggestion.name)")
+                .font(.caption)
+                .foregroundColor(.primary)
             
             Text("\(Int(suggestion.confidence * 100))%")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.gray.opacity(0.2)))
         }
         .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .background(Color.yellow.opacity(0.1))
-        .cornerRadius(6)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.yellow.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.yellow.opacity(0.3), lineWidth: 1)
+                )
+        )
+        .transition(.asymmetric(
+            insertion: .move(edge: .top).combined(with: .opacity),
+            removal: .scale.combined(with: .opacity)
+        ))
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: suggestion)
     }
     
     private var statusIndicatorView: some View {
@@ -247,6 +295,7 @@ struct ContentView: View {
         Button(action: {
             withAnimation(.easeInOut(duration: 0.2)) {
                 scaleManager.tare()
+                hapticCoordinator.triggerHaptic(.tare)
             }
         }) {
             Text("TARE")
@@ -284,10 +333,15 @@ struct ContentView: View {
             showCalibration = true
         case "r":
             showRecipeMode = true
+        case "t": // T for tare
+            scaleManager.tare()
+            hapticCoordinator.triggerHaptic(.tare)
         case " ": // Spacebar for tare
             scaleManager.tare()
+            hapticCoordinator.triggerHaptic(.tare)
         case "z" where event.modifierFlags.contains(.command):
             scaleManager.undoTare()
+            hapticCoordinator.triggerHaptic(.tare)
         default:
             if event.keyCode == 53 { // Escape
                 NSApplication.shared.terminate(nil)
@@ -301,6 +355,20 @@ struct ContentView: View {
             withAnimation(.easeInOut(duration: 1.0)) {
                 isSleeping = true
             }
+        }
+    }
+    
+    private func checkWeightMilestones(_ weight: Float) {
+        // Provide haptic feedback every 10g
+        let milestone = Float(Int(weight / 10) * 10)
+        if milestone > lastMilestoneWeight && weight > 0.1 {
+            hapticCoordinator.triggerCustomPattern(intensity: 0.3, duration: 0.1)
+            lastMilestoneWeight = milestone
+        }
+        
+        // Reset milestone tracking when weight drops significantly
+        if weight < lastMilestoneWeight - 20 {
+            lastMilestoneWeight = milestone
         }
     }
 }

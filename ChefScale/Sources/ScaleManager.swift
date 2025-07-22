@@ -139,8 +139,7 @@ class ScaleManager: ObservableObject {
             runningTotal += displayWeight
         }
         
-        // Haptic feedback
-        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        // Haptic feedback removed - handled by ContentView
     }
     
     func undoTare() {
@@ -150,7 +149,7 @@ class ScaleManager: ObservableObject {
         runningTotal -= (lastTare - (tareHistory.last ?? 0))
         tareOffset = tareHistory.last ?? 0
         
-        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        // Haptic feedback removed - handled by ContentView
     }
     
     func toggleUnit() {

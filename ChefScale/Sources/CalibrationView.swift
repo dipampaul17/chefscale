@@ -78,35 +78,58 @@ struct CalibrationView: View {
     }
     
     private var calibrationControlsView: some View {
-        GroupBox("Calibration Adjustment") {
+        GroupBox("Calibration Offset") {
             VStack(spacing: 12) {
                 HStack {
-                    Text("Offset:")
+                    Button(action: { adjustOffset(-0.1) }) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .scaleEffect(offsetAdjustment <= -4.9 ? 0.8 : 1.0)
+                    .animation(.spring(response: 0.3), value: offsetAdjustment)
+                    
                     Spacer()
-                    Text("\(offsetAdjustment, specifier: "%.2f")g")
-                        .font(.system(.body, design: .monospaced))
+                    
+                    Text("\(offsetAdjustment, specifier: "%+.1f")g")
+                        .font(.system(size: 24, weight: .medium, design: .monospaced))
+                        .frame(minWidth: 80)
+                        .animation(.none, value: offsetAdjustment)
+                    
+                    Spacer()
+                    
+                    Button(action: { adjustOffset(0.1) }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .scaleEffect(offsetAdjustment >= 4.9 ? 0.8 : 1.0)
+                    .animation(.spring(response: 0.3), value: offsetAdjustment)
                 }
                 
-                HStack {
-                    Button("−1g") { adjustOffset(-1.0) }
-                    Button("−0.1g") { adjustOffset(-0.1) }
-                    
-                    Spacer()
-                    
-                    Slider(value: $offsetAdjustment, in: -5.0...5.0, step: 0.01)
-                        .frame(width: 200)
-                    
-                    Spacer()
-                    
-                    Button("+0.1g") { adjustOffset(0.1) }
-                    Button("+1g") { adjustOffset(1.0) }
+                // Visual offset indicator
+                GeometryReader { geometry in
+                    ZStack(alignment: .center) {
+                        // Background track
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 8)
+                        
+                        // Offset indicator
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(offsetAdjustment < 0 ? Color.orange : Color.blue)
+                            .frame(width: 20, height: 12)
+                            .offset(x: CGFloat(offsetAdjustment) * (geometry.size.width / 10))
+                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: offsetAdjustment)
+                    }
                 }
+                .frame(height: 20)
                 
-                Button("Reset to Zero") {
-                    offsetAdjustment = 0.0
-                    applyCalibration()
-                }
-                .buttonStyle(.borderless)
+                Text("Use arrow keys for fine adjustment")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
