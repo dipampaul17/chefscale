@@ -386,6 +386,8 @@ struct KeyEventView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = KeyCaptureView()
         view.onKeyDown = onKeyDown
+        // Enable haptic feedback support - NSHapticFeedbackManager
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .drawCompleted)
         return view
     }
     
